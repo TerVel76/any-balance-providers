@@ -19,6 +19,7 @@ var regions = {
 	prm: getPrm,
 	ekt: getPrm,
 	krv: getKrv,
+	vnov: getVnov,
 	nnov: getNnov,
 	nnov_tv: getNnovTv,
 	sdv: getSdv,
@@ -36,6 +37,7 @@ var regions = {
 	barnaul: getBarnaul,
 	belgorod: getBelgorod,
 	saratov: getSaratov,
+	saratov_tv: getSaratovTv,
     smolensk: getSmolensk,
 	chita: getChita,
 	amur: getAmur,
@@ -47,6 +49,7 @@ var regions = {
 	volzhsk: getVolzhsk,
     novokuz: getNovokuz,
 	nahodka: getNahodka,
+	kursk: getKursk,
 };
 
 function main(){
@@ -54,9 +57,13 @@ function main(){
 	var region = prefs.region;
 	if(!region || !regions[region])
 		region = 'volzhsk';
-	
+
 	var func = regions[region];
 	AnyBalance.trace('Регион: ' + region);
+
+	checkEmpty(prefs.login, 'Введите логин!');
+	checkEmpty(prefs.password, 'Введите пароль!');
+
     func();
 }
 
@@ -98,36 +105,19 @@ function getRostov(){
 function getMoscow(){
     var prefs = AnyBalance.getPreferences();
     var baseurl = 'https://kabinet.mts.ru/zservice/';
-    var baseloginurl = "https://login.mts.ru/amserver/UI/Login?service=stream&arg=newsession&goto=http%3A%2F%2Fkabinet.mts.ru%3A80%2Fzservice%2Fgo";
-    
-    if(!prefs.__dbg){
-        var info = AnyBalance.requestGet(baseloginurl);
-        
-        var form = getParam(info, null, null, /<form[^>]+name="Login"[^>]*>([\s\S]*?)<\/form>/i);
-        if(!form)
-            throw new AnyBalance.Error("Не удаётся найти форму входа!");
-        
-        var params = createFormParams(form, function(params, input, name, value){
-            var undef;
-            if(name == 'IDToken1')
-                value = prefs.login;
-            else if(name == 'IDToken2')
-                value = prefs.password;
-            else if(name == 'noscript')
-                value = undef; //Снимаем галочку
-            else if(name == 'IDButton')
-                value = 'Submit';
-           
-            return value;
-        });
-        
-        // Заходим на главную страницу
-        info = AnyBalance.requestPost(baseloginurl, params, addHeaders({Referer: baseloginurl}));
-    }else{
-        var info = AnyBalance.requestGet(baseurl);
-    }
+    var baseloginurl = "https://login.mts.ru/amserver/UI/Login?service=stream&arg=newsession&goto=http%3A%2F%2Fkabinet.mts.ru%3A80%2Fzservice%2F";
 
-    $parse = $(info);
+    AnyBalance.setOptions({
+    	PER_DOMAIN: {
+    		'dialup.mtu.ru': {
+    			DEFAULT_CHARSET: 'koi8-r'
+    		}
+    	}
+    });
+
+    var info = enterMTS({baseurl: baseurl, url: baseloginurl, login: prefs.login, password: prefs.password});
+    
+    $parse = $(info.replace(/^[^<]+/, ''));
 
     if(!/src=exit/i.test(info)){
         var error = $.trim($parse.find('div.logon-result-block>p').text());
@@ -478,7 +468,7 @@ function getVolzhsk(){
 }
 	
 function getArkh(){
-	newTypicalLanBillingInetTv('https://lk.arkhangelsk.mts.ru/client/index.php');
+	newTypicalLanBillingInetTv('https://lk.arkhangelsk.mts.ru/index.php');
 }
 
 function getPnz(){
@@ -489,11 +479,15 @@ function getNnovTv() {
 	newTypicalLanBillingInetTv('https://lktvnn.pv.mts.ru/index.php');
 }
 
+function getVnov() {
+	newTypicalLanBillingInetTv('https://lk.nov.mts.ru/index.php');
+}
+
 function getNnov(){
     var prefs = AnyBalance.getPreferences();
     AnyBalance.setDefaultCharset('windows-1251');
 
-    var baseurl = 'http://stat.nnov.comstar-r.ru';
+    var baseurl = 'https://lknn.pv.mts.ru/stat/';
     AnyBalance.setAuthentication(prefs.login, prefs.password);
 
     var html = AnyBalance.requestGet(baseurl);
@@ -510,7 +504,7 @@ function getNnov(){
     getParam(html, result, 'username', /Лицевой счёт[^<]*(?:<[^>]*>\s*)*([^<]*)/i, replaceTagsAndSpaces);
     getParam(html, result, 'daysleft', /Этой суммы вам хватит[\s\S]*?<span[^>]+class="imp"[^>]*>([\s\S]*?)<\/span>/i, replaceTagsAndSpaces, parseBalance2);
 
-    var url = getParam(html, null, null, /<a[^>]+href="([^"]*)"[^>]*>Информация об услугах/i, null, html_entity_decode);
+    var url = getParam(html, null, null, /<a[^>]+href="\/stat\/([^"]*)"[^>]*>Информация об услугах/i, null, html_entity_decode);
     if(!url){
         AnyBalance.trace("Не удалось найти ссылку на информацию об услугах.");
     }else{
@@ -519,7 +513,7 @@ function getNnov(){
         if(!tr){
             AnyBalance.trace("Не удалось найти ссылку на информацию об интернет.");
         }else{
-            url = getParam(tr, null, null, /<a[^>]+href="([^"]*)/i, null, html_entity_decode);
+            url = getParam(tr, null, null, /<a[^>]+href="\/stat\/([^"]*)/i, null, html_entity_decode);
             html = AnyBalance.requestGet(baseurl + url);
             getParam(html, result, 'agreement', /Договор:[\s\S]*?<td[^>]*>([\s\S]*?)<\/td>/i, replaceTagsAndSpaces);
             getParam(html, result, '__tariff', /Описание услуги:[\s\S]*?<td[^>]*>(?:\s*<b[^>]*>[^<]*<\/b>)?([\s\S]*?)<\/td>/i, replaceTagsAndSpaces);
@@ -532,8 +526,7 @@ function getNnov(){
 }
 
 function getSdv(){
-    var baseurl = 'https://lk.arkhangelsk.mts.ru/client/';
-    typicalLanBillingInetTv(baseurl + 'index.php?r=site/login');
+    newTypicalLanBillingInetTv('https://lk.arkhangelsk.mts.ru/index.php');
 }
 
 function getVologda(){
@@ -692,8 +685,8 @@ function getMagnit(){
 
 
 function getMiass(){
-    var baseurl = "http://stat.miass.multinex.ru/";
-    typicalLanBillingInetTv(baseurl + 'index.php?r=site/login');
+    var baseurl = "https://lkmiass.ural.mts.ru/";
+    newTypicalLanBillingInetTv(baseurl + 'index.php');
 }
 
 function getKurgan(){
@@ -795,6 +788,10 @@ function getSaratov(){
 	newTypicalLanBillingInetTv('https://lksrt.pv.mts.ru/internet/index.php');
 }
 
+function getSaratovTv(){
+	newTypicalLanBillingInetTv('https://lksrt.pv.mts.ru/ktv/index.php');
+}
+
 function getChita(){
 	newTypicalLanBillingInetTv('https://clb.primorye.mts.ru/chita/index.php');
 }
@@ -821,6 +818,10 @@ function getBalakovo(){
 
 function getYar() {
 	newTypicalLanBillingInetTv('https://lk-yaroslavl.center.mts.ru/index.php');
+}
+
+function getKursk(){
+	newTypicalLanBillingInetTv('https://lk-kursk.center.mts.ru/index.php');
 }
 
 function newTypicalLanBillingInetTv(baseurl) {
@@ -880,7 +881,7 @@ function newTypicalLanBillingInetTv(baseurl) {
 		for(var j = 0; j < json.body.length; j++) {
 			var tarifdescr = json.body[j].tarifdescr; //Цифровое ТВ
 			
-			if(typeof tarifdescr == Object) {
+			if(typeof tarifdescr == 'object') {
 				tarifdescr = tarifdescr.descr;
 			}
 			
@@ -889,6 +890,7 @@ function newTypicalLanBillingInetTv(baseurl) {
 			
 			var response = {
 				bal:balance,
+				abon:json.body[j].rent,
 				acc:account,
 				accId:accountID,
 				'tarifdescr':tarifdescr,
@@ -898,7 +900,7 @@ function newTypicalLanBillingInetTv(baseurl) {
 			var act = /Состояние:\s+актив|Действует/i.test(state) ? 'active' : 'inactive';
 			var pri = priority[act];
 			// Это ТВ
-			if(/\BТВ\B|Телевидение/.test(tarifdescr)) {
+			if(/\BТВ\B|Телевидение/.test(tarifdescr) && !/ШПД/.test(tarifdescr)) {
 				if(!isset(accTv[pri]))
 					accTv[pri] = response;
 			// Это интернет
@@ -919,8 +921,9 @@ function newTypicalLanBillingInetTv(baseurl) {
 				usedAccs['acc_' + json.acc] = true;
 			}
 			
-			if(!/Нет подключенных услуг|не\s*доступно/i.test(json.services)) {
-				sumParam(json.tarifdescr, result, '__tariff', null, replaceTagsAndSpaces, html_entity_decode, aggregate_join);
+			if(!/Выключен/i.test(json.state) && !/не\s*доступно/i.test(json.services)) {
+				sumParam(json.abon, result, 'abon', null, null, parseBalance, aggregate_sum);
+				sumParam(json.tarifdescr, result, '__tariff', null, null, null, aggregate_join);
 			}
 		}
     }

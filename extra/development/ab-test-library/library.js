@@ -1,15 +1,33 @@
-﻿/*! AnyBalance Library (http://any-balance-providers.googlecode.com)
-The uncompressed full source code of this library is here: https://code.google.com/p/any-balance-providers/source/browse/trunk/extra/development/ab-test-library/library.js
-*/
 /**
-AnyBalance (http://any-balance-providers.googlecode.com)
+AnyBalance (https://github.com/dukei/any-balance-providers/)
 
 Содержит некоторые полезные для извлечения значений с сайтов функции.
 Для конкретного провайдера рекомендуется оставлять в этом файле только те функции, которые используются.
 
-library.js v0.17 от 05.06.15
+library.js v0.21 от 11.12.15
 
 changelog:
+11.12.15 добавлена функция getFormattedDate, на нее переключена fmtDate для сохранения совместимости
+getFormattedDate на входе получает json: options = {
+	format: 'DD/MM/YYYY', // DD=09, D=9, MM=08, М=8, YYYY=2015, YY=15
+	offsetDay: 0, // Смещение по дням
+	offsetMonth: 0, // Смещение по месяцам
+	offsetYear: 5, // Смещение по годам
+}
+и вторым параметром Date (необязательно)
+
+10.12.15 Добавлена getJsonObject
+
+06.12.15 Полностью переработаны html_entity_decode и replaceTagsAndSpaces, добавлен XRegExp (http://xregexp.com/)
+	ВНИМАНИЕ!!! replaceTagsAndSpaces теперь уже включает html_entity_decode, поэтому при использовании replaceTagsAndSpaces уже не надо пользовать html_entity_decode
+	Если значение берется из атрибута, и теги удалять не надо, то заменить сущности можно массивом replaceHtmlEntities
+
+27.11.15 createFormParams: доработки для универсальности
+
+27.10.15 sumParam: добавлено сообщение об отключенном счетчике
+
+16.09.15 добавлены n2, joinUrl, fmtDate
+ 
 05.06.15 добавлена правильная обработка чекбоксов в createFormParams;
 
 17.05.15 getElement, getElements - добавлены функции получения HMTL всего элемента, включая вложенные элементы с тем же тегом
@@ -63,10 +81,9 @@ changelog:
  * массивы могут быть вложенными
  * см. например replaceTagsAndSpaces
  */
- 
 function getParam(html, result, param, regexp, replaces, parser) {
 	if(!isset(html)) {
-		AnyBalance.trace('param1 is unset! ' + new Error().stack);
+		AnyBalance.trace('getParam: input ' + (param ? '(' + param + ')' : '') + ' is unset! ' + new Error().stack);
 		return;
 	}
 	if (!isAvailable(param)) {
@@ -111,22 +128,21 @@ function isAvailable(param) {
 	return AnyBalance.isAvailable(param);
 }
 //Замена пробелов и тэгов
-var replaceTagsAndSpaces = [/&nbsp;/ig, ' ', /&minus;/ig, '-', /<!--[\s\S]*?-->/g, '', /<[^>]*>/g, ' ', /\s{2,}/g, ' ', /^\s+|\s+$/g, ''],
-//Замена для чисел
-    replaceFloat = [/&minus;/ig, '-', /\s+/g, '', /'/g, '', /,/g, '.', /\.([^.]*)(?=\.)/g, '$1', /^\./, '0.'],
+var replaceTagsAndSpaces = [String.REPLACE_TAGS_AND_SPACES, /[\uFEFF\xA0]/ig, ' ', /\s{2,}/g, ' ', /^\s+|\s+$/g, ''],
+//Замена для чисел (&minus, &mdash, &ndash)
+    replaceFloat = [/[\u2212\u2013\u2014]/ig, '-', /\s+/g, '', /'/g, '', /,/g, '.', /\.([^.]*)(?=\.)/g, '$1', /^\./, '0.'],
 //Замена для Javascript строк
     replaceSlashes = [/\\(.?)/g, function(str, n) {
-	switch (n) {
-	case '0':
-		return '\0';
-	case '':
-		return '';
-	default:
-		return n;
-	}
-}],
-//Замена всех html энтитей
-    replaceHtmlEntities = [/&(#(x)?)?(\w+);/ig, make_html_entity_replacement];
+		switch (n) {
+		case '0':
+			return '\0';
+		case '':
+			return '';
+		default:
+			return n;
+		}
+	}],
+	replaceHtmlEntities = String.REPLACE_HTML_ENTITIES;
 
 /** Проверяет, определено ли значение переменной */
 function isset(v) {
@@ -140,27 +156,27 @@ function isArray(arr) {
 
 /** Делает все замены в строке value. При этом, если элемент replaces массив, то делает замены по нему рекурсивно. */
 function replaceAll(value, replaces) {
-	for (var i = 0; replaces && i < replaces.length; ++i) {
-		if (isArray(replaces[i])) {
-			value = replaceAll(value, replaces[i]);
-		} else {
-			value = value.replace(replaces[i], replaces[i + 1]);
-			++i; //Пропускаем ещё один элемент, использованный в качестве замены
-		}
-	}
-	return value;
+	if(!replaces) return value;
+	if(typeof value != 'string')
+		value += '';
+	return value.replaceAll(replaces);
 }
 
 /** Извлекает числовое значение из переданного текста */
-function parseBalance(text) {
-	var val = getParam(html_entity_decode(text).replace(/\s+/g, ''), null, null, /(-?[.,]?\d[\d'.,]*)/, replaceFloat, parseFloat);
-	AnyBalance.trace('Parsing balance (' + val + ') from: ' + text);
+function parseBalance(text, silent) {
+	var val = getParam(text.replace(/\s+/g, ''), null, null, /(-?[.,]?\d[\d'.,]*)/, replaceFloat, parseFloat);
+	if(!silent)
+		AnyBalance.trace('Parsing balance (' + val + ') from: ' + text);
 	return val;
+}
+
+function parseBalanceSilent(text){
+	return parseBalance(text, true);
 }
 
 /** Извлекает валюту из переданного текста (типичная реализация) */
 function parseCurrency(text) {
-	var val = getParam(html_entity_decode(text).replace(/\s+/g, ''), null, null, /-?\d[\d.,]*(\S*)/);
+	var val = getParam(text.replace(/\s+/g, ''), null, null, /-?\d[\d.,]*(\S*)/);
 	AnyBalance.trace('Parsing currency (' + val + ') from: ' + text);
 	return val;
 }
@@ -168,8 +184,8 @@ function parseCurrency(text) {
 /** Извлекает время в секундах из переданного текста, на разных языках, из разных форматов (1:30, 01:02:03, 1 м 3 сек, 3 сек, 1 час...) 
 Если на входе будет просто число - вернет минуты.
 Если на входе будет 02:03 будет принят формат ММ:СС*/
-function parseMinutes(_text) {
-	var text = html_entity_decode(_text).replace(/[\s�]+/g, '');
+function parseMinutes(_text, silent) {
+	var text = _text.replace(/[\s�]+/g, '');
 	var hour = 0, min = 0, sec = 0;
 	// Это формат ЧЧ:ММ:СС	
 	if(/^\d+:\d+:\d+$/i.test(text)) {
@@ -190,133 +206,19 @@ function parseMinutes(_text) {
 		sec = getParam(text, null, null, /(-?\d[\d.,]*)\s*(?:сек|c|с|sec|s)/i, replaceFloat, parseFloat) || 0;
 	}
 	var val = (hour*3600) + (min * 60) + sec;
-	AnyBalance.trace('Parsed seconds (' + val + ') from: ' + _text);
+	if(!silent)
+		AnyBalance.trace('Parsed seconds (' + val + ') from: ' + _text);
 	return val;
+}
+
+function parseMinutesSilent(_text){
+	return parseMinutes(_text, true);
 }
 
 /** Заменяет HTML сущности в строке на соответствующие им символы */
 function html_entity_decode(string) {
-	return replaceAll(string, replaceHtmlEntities);
+	return string.htmlEntityDecode();
 }
-
-function make_html_entity_replacement(str, sharp, x, m){
-	var entities = {
-		amp		: 38,
-		nbsp	: 160,
-		iexcl	: 161,
-		cent	: 162,
-		pound	: 163,
-		curren	: 164,
-		yen		: 165,
-		brvbar	: 166,
-		sect	: 167,
-		uml		: 168,
-		copy	: 169,
-		ordf	: 170,
-		laquo	: 171,
-		not		: 172,
-		shy		: 173,
-		reg		: 174,
-		macr	: 175,
-		deg		: 176,
-		plusmn	: 177,
-		sup2	: 178,
-		sup3	: 179,
-		acute	: 180,
-		micro	: 181,
-		para	: 182,
-		middot	: 183,
-		cedil	: 184,
-		sup1	: 185,
-		ordm	: 186,
-		raquo	: 187,
-		frac14	: 188,
-		frac12	: 189,
-		frac34	: 190,
-		iquest	: 191,
-		agrave	: 192,
-		aacute	: 193,
-		acirc	: 194,
-		atilde	: 195,
-		auml	: 196,
-		aring	: 197,
-		aelig	: 198,
-		ccedil	: 199,
-		egrave	: 200,
-		eacute	: 201,
-		ecirc	: 202,
-		euml	: 203,
-		igrave	: 204,
-		iacute	: 205,
-		icirc	: 206,
-		iuml	: 207,
-		eth		: 208,
-		ntilde	: 209,
-		ograve	: 210,
-		oacute	: 211,
-		ocirc	: 212,
-		otilde	: 213,
-		ouml	: 214,
-		times	: 215,
-		oslash	: 216,
-		ugrave	: 217,
-		uacute	: 218,
-		ucirc	: 219,
-		uuml	: 220,
-		yacute	: 221,
-		thorn	: 222,
-		szlig	: 223,
-		agrave	: 224,
-		aacute	: 225,
-		acirc	: 226,
-		atilde	: 227,
-		auml	: 228,
-		aring	: 229,
-		aelig	: 230,
-		ccedil	: 231,
-		egrave	: 232,
-		eacute	: 233,
-		ecirc	: 234,
-		euml	: 235,
-		igrave	: 236,
-		iacute	: 237,
-		icirc	: 238,
-		iuml	: 239,
-		eth		: 240,
-		ntilde	: 241,
-		ograve	: 242,
-		oacute	: 243,
-		ocirc	: 244,
-		otilde	: 245,
-		ouml	: 246,
-		divide	: 247,
-		oslash	: 248,
-		ugrave	: 249,
-		uacute	: 250,
-		ucirc	: 251,
-		uuml	: 252,
-		yacute	: 253,
-		thorn	: 254,
-		yuml	: 255,
-		quot	: 34,
-		lt		: 60,
-		gt		: 62
-	};
-
-	if (!sharp) {
-		var ml = m.toLowerCase(m);
-		if (entities.hasOwnProperty(ml))
-			return String.fromCharCode(entities[ml]);
-	} else if (!x) {
-		if (/^\d+$/.test(m))
-			return String.fromCharCode(parseInt(m));
-	} else {
-		if (/^[0-9a-f]+$/i.test(m))
-			return String.fromCharCode(parseInt(m, 16));
-	}
-	return str;
-}
-
 /**
  * Получает объект с параметрами форм (ищет в html все <input и <select и возвращает объект с их именами-значениями.
  * 
@@ -338,61 +240,75 @@ function make_html_entity_replacement(str, sharp, x, m){
 	});
 */
 function createFormParams(html, process, array){
-    var params = array ? [] : {};
-    html.replace(/<input[^>]+name=['"]([^'"]*)['"][^>]*>|<select[^>]+name=['"]([^'"]*)['"][^>]*>[\s\S]*?<\/select>/ig, function(str, nameInp, nameSel){
-        var value = '';
+    var params = array ? [] : {}, valueRegExp=/value\s*=\s*("[^"]*"|'[^']*'|[\w\-\/\\]+)/i, valueReplace=[/^"([^"]*)"$|^'([^']*)'$/, '$1$2', replaceHtmlEntities], name,
+		inputRegExp = /<input[^>]+name\s*=\s*("[^"]*"|'[^']*'|[\w\-\/\\]+)[^>]*>|<select[^>]+name\s*=\s*("[^"]*"|'[^']*'|[\w\-\/\\]+)[^>]*>[\s\S]*?<\/select>/ig, nullVal = null;
+
+	while(true) {
+		var amatch = inputRegExp.exec(html);
+		if (!amatch)
+			break;
+		var str = amatch[0], nameInp = amatch[1], nameSel = amatch[2], value = '';
         if(nameInp){
-            if(/type=['"]button['"]/i.test(str))
+            if(/type\s*=\s*['"]?button['"]?/i.test(str))
                 value=undefined;
-            else if(/type=['"]checkbox['"]/i.test(str)){
+            else if(/type\s*=\s*['"]?checkbox['"]?/i.test(str)){
             	//Чекбокс передаёт значение только если он чекед. Если чекед, а значения нет, то передаёт on
-                value = /[^\w]checked[^\w]/i.test(str) ? getParam(str, null, null, /value=['"]([^'"]*)['"]/i, null, html_entity_decode) || 'on' : undefined;
+                value = /[^\w\-]checked[^\w\-]/i.test(str) ? getParam(str, nullVal, nullVal, valueRegExp, valueReplace) || 'on' : undefined;
             }else
-                value = getParam(str, null, null, /value=['"]([^'"]*)['"]/i, null, html_entity_decode) || '';
-            name = nameInp;
+                value = getParam(str, nullVal, nullVal, valueRegExp, valueReplace) || '';
+            name = replaceAll(nameInp, valueReplace);
 			
         }else if(nameSel){
-            value = getParam(str, null, null, /^<[^>]*value=['"]([^'"]*)['"]/i, null, html_entity_decode);
+			var sel = getParam(str, nullVal, nullVal, /^<[^>]*>/i);
+            value = getParam(sel, nullVal, nullVal, valueRegExp, valueReplace);
             if(typeof(value) == 'undefined'){
-                var optSel = getParam(str, null, null, /(<option[^>]+selected[^>]*>)/i);
+                var optSel = getParam(str, nullVal, nullVal, /(<option[^>]+selected[^>]*>)/i);
                 if(!optSel)
-                    optSel = getParam(str, null, null, /(<option[^>]*>)/i);
+                    optSel = getParam(str, nullVal, nullVal, /(<option[^>]*>)/i);
 				if(optSel)
-				    value = getParam(optSel, null, null, /value=['"]([^'"]*)["']/i, null, html_entity_decode);
+				    value = getParam(optSel, nullVal, nullVal, valueRegExp, valueReplace);
             }
-            name = nameSel;
+            name = replaceAll(nameSel, valueReplace);;
         }
 
-        name = html_entity_decode(name);
         if(process){
             value = process(params, str, name, value);
         }
-        if(typeof(value) != 'undefined')
-            if(array) params.push([name, value])
-            else params[name] = value;
-    });
+        if(typeof(value) != 'undefined') {
+			if (array)
+				params.push([name, value])
+			else
+				params[name] = value;
+		}
+    }
 
     //AnyBalance.trace('Form params are: ' + JSON.stringify(params));
     return params;
 }
 
 /** Получает дату из строки 23.02.13*/
-function parseDate(str) {
+function parseDate(str, silent) {
 	var matches = /(?:(\d+)[^\d])?(\d+)[^\d](\d{2,4})(?:[^\d](\d+):(\d+)(?::(\d+))?)?/.exec(str);
 	if (matches) {
 		var year = +matches[3];
 		var date = new Date(year < 1000 ? 2000 + year : year, matches[2] - 1, +(matches[1] || 1), matches[4] || 0, matches[5] || 0, matches[6] || 0);
 		var time = date.getTime();
-		AnyBalance.trace('Parsing date ' + date + ' from value: ' + str);
+		if(!silent)
+			AnyBalance.trace('Parsing date ' + date + ' from value: ' + str);
 		return time;
 	}
-	AnyBalance.trace('Failed to parse date from value: ' + str);
+	if(!silent)
+		AnyBalance.trace('Failed to parse date from value: ' + str);
+}
+
+function parseDateSilent(str){
+	return parseDate(str, true);
 }
 
 /** Парсит дату из такого вида: 27 июля 2013 без использования сторонних библиотек, результат в мс */
 function parseDateWord(str){
 	AnyBalance.trace('Trying to parse date from ' + str);
-	var dateString = getParam(str, null, null, null, [replaceTagsAndSpaces, 
+	var dateString = replaceAll(str, [replaceTagsAndSpaces, replaceHtmlEntities,
 		/\D*(?:январ(?:я|ь)|янв|january|jan)\D*/i, '.01.', 
 		/\D*(?:феврал(?:я|ь)|фев|febrary|feb)\D*/i, '.02.', 
 		/\D*(?:марта|март|мар|march|mar)\D*/i, '.03.', 
@@ -600,6 +516,11 @@ function parseDateJS(str) {
  * см. например replaceTagsAndSpaces
  */
 function sumParam(html, result, param, regexp, replaces, parser, do_replace, aggregate) {
+	if(!isset(html)) {
+		AnyBalance.trace('sumParam: input ' + (param ? '(' + param + ')' : '') + ' is unset! ' + new Error().stack);
+		return;
+	}
+
 	if (typeof(do_replace) == 'function') {
 		var aggregate_old = aggregate;
 		aggregate = do_replace;
@@ -611,9 +532,12 @@ function sumParam(html, result, param, regexp, replaces, parser, do_replace, agg
 			return regexp ? html.replace(regexp, '') : '';
 	}
 
-	if (!isAvailable(param)) //Даже если счетчик не требуется, всё равно надо вырезать его матчи, чтобы не мешалось другим счетчикам
+	if (!isAvailable(param)) {
+		AnyBalance.trace(param + ' is disabled!');
+		//Даже если счетчик не требуется, всё равно надо вырезать его матчи, чтобы не мешалось другим счетчикам
 		return replaceIfNeeded();
-
+	}
+	
 	//После того, как проверили нужность счетчиков, кладем результат в первый из переданных счетчиков. Оставляем только первый
 	param = __getParName(param);
 
@@ -671,14 +595,17 @@ function aggregate_sum(values) {
 	}
 	return total_value;
 }
+
 function aggregate_join(values, delimiter, allow_empty) {
 	if (values.length == 0) 
 		return;
 	if (!isset(delimiter)) 
 		delimiter = ', ';
 	var ret = values.join(delimiter);
-	if (!allow_empty) 
-		ret = ret.replace(/^(?:\s*,\s*)+|(?:\s*,\s*){2,}|(?:\s*,\s*)+$/g, '');
+	if (!allow_empty){
+		delimiter = delimiter.trim().replace(/([.?*+^$[\]\\(){}|-])/g, "\\$1");
+		ret = ret.replace(new RegExp('^(?:\\s*' + delimiter + '\\s*)+|(?:\\s*' + delimiter + ']\\s*){2,}|(?:\\s*' + delimiter + '\\s*)+$', 'g'), '');
+	}
 	return ret;
 }
 
@@ -720,7 +647,7 @@ function parseTrafficGb(text, defaultUnits) {
 
 /** Вычисляет трафик в нужных единицах из переданной строки. */
 function parseTrafficEx(text, thousand, order, defaultUnits) {
-	var _text = html_entity_decode(text.replace(/\s+/g, ''));
+	var _text = text.replace(/\s+/g, '');
 	var val = getParam(_text, null, null, /(-?\.?\d[\d\.,]*)/, replaceFloat, parseFloat);
 	if (!isset(val) || val === '') {
 		AnyBalance.trace("Could not parse traffic value from " + text);
@@ -794,7 +721,7 @@ function requestPostMultipart(url, data, headers) {
 
 /** Приводим все к единому виду вместо ИВаНов пишем Иванов */
 function capitalFirstLetters(str) {
-	var wordSplit = html_entity_decode(str + '').toLowerCase().split(' ');
+	var wordSplit = str.toLowerCase().split(' ');
 	var wordCapital = '';
 	for (i = 0; i < wordSplit.length; i++) {
 		wordCapital += wordSplit[i].substring(0, 1).toUpperCase() + wordSplit[i].substring(1) + ' ';
@@ -824,36 +751,100 @@ function setCountersToNull(result){
 function getElement(html, re, replaces, parseFunc){
 	var amatch = re.exec(html);
 	if(!amatch)
-		return null;
+		return;
 	var startIndex = amatch.index;
 	var startTag = html.substr(startIndex, amatch[0].length);
 	var elem = getParam(startTag, null, null, /<(\w+)/);
-	var endTag = new RegExp('(?:<' + elem + '|<\/' + elem + ')[^>]*>', 'ig');
-	endTag.lastIndex = startIndex + amatch[0].length;
+	var reStart = new RegExp('<' + elem + '[^>]*>', 'ig');
+	var reEnd = new RegExp('<\/' + elem + '[^>]*>', 'ig');
+	reStart.lastIndex = startIndex;
+
+	return getRecursiveMatch(html, reStart, reEnd, replaces, parseFunc);
+}
+
+/**
+	Находит в html JSON объект, начиная с позиции первого вхождения регулярного выражения reStartSearch (если оно указано).
+	Если type '[', то ищется массив, если другое, то объект.
+
+	Возвращается объект (или массив) или undefined, если объект не найден.
+*/
+function getJsonObject(html, reStartSearch, type){
+    var types = {
+    	'{': {
+    		left: '\\\{												\n\
+				(?:	[^"\'\\\{\\\}\\/]+								\n\
+				 |	"	(?:[^"\\\\]+|\\\\.)*	"		#string1	\n\
+				 |	\'	(?:[^\'\\\\]+|\\\\.)*	\'		#string2	\n\
+				 |	\\/	(?:[^\\/\\\\]+|\\\\.)+	\\/		#regexp		\n\
+				)*													\n\
+			',
+            right: /\}/
+            },
+        '[': {
+    		left: '\\\[												\n\
+				(?:	[^"\'\\\[\\\]\\/]+								\n\
+				 |	"	(?:[^"\\\\]+|\\\\.)*	"		#string1	\n\
+				 |	\'	(?:[^\'\\\\]+|\\\\.)*	\'		#string2	\n\
+				 |	\\/	(?:[^\\/\\\\]+|\\\\.)+	\\/		#regexp		\n\
+				)*													\n\
+			',
+            right: /\]/
+        }
+    };
+
+	if(!types[type])
+		type = '{';
+
+	var startIndex = 0;
+	if(reStartSearch){
+		var amatch = reStartSearch.exec(html);
+		if(!amatch)
+			return;
+		startIndex = amatch.index;
+	}
+
+	var reStart = new XRegExp(types[type].left, 'gx');
+	reStart.lastIndex = startIndex;
+
+	return getRecursiveMatch(html, reStart, types[type].right, null, getJsonEval);
+}
+
+function getRecursiveMatch(html, reStart, reEnd, replaces, parseFunc){
+	var amatch = reStart.exec(html);
+	if(!amatch)
+		return;
+
+	var startIndex = amatch.index;
+
 	var depth = 0;
+	var reStartOrEnd = new RegExp('(?:' + reStart.source + ')|(?:' + reEnd.source + ')', 'ig');
+	var reStartWithEnd = new RegExp('^(?:' + reEnd.source + ')', reEnd.ignoreCase ? 'i' : '');
+
+	reStartOrEnd.lastIndex = startIndex + amatch[0].length;
 
 	while(true){
-		amatch = endTag.exec(html);
+		amatch = reStartOrEnd.exec(html);
 		if(!amatch)
 			break;
 		var matched = amatch[0];
-		if(matched.charAt(1) == '/'){
+		if(reStartWithEnd.test(matched)){ //Закрывающий тег
 		    if(depth == 0)
 		    	break;
 		    --depth;
 		}else{
 			++depth;
 		}
-		endTag.lastIndex = amatch.index + matched.length;
+		reStartOrEnd.lastIndex = amatch.index + matched.length;
 	}
 
 	var endIndex = html.length;
 	if(amatch)
 		endIndex = amatch.index + amatch[0].length;
 
-	re.lastIndex = endIndex;
+	reStart.lastIndex = endIndex;
 
 	var str = html.substring(startIndex, endIndex);
+
 	if(replaces)
 		str = replaceAll(str, replaces);
 	if(parseFunc)
@@ -871,7 +862,7 @@ function getElement(html, re, replaces, parseFunc){
     //Найти див somediv, содержащий <div class="title"	
     	getElements(html, [/<div[^>]+id="somediv"[^>]*>/ig, /<div[^>]+class="title"/i])
 */
-function getElements(html, re, replaces, parseFunc){
+/*array*/ function getElements(html, re, replaces, parseFunc){
 	var results = [];
 	var regexp = isArray(re) ? re[0] : re;
 	var add_re = isArray(re) ? (re.shift(), re) : null;
@@ -891,7 +882,7 @@ function getElements(html, re, replaces, parseFunc){
 		
 		if(!regexp.global)
 			break; //Экспрешн только на один матч
-	}while(res !== null);
+	}while(isset(res));
 	return results;
 }
 
@@ -899,4 +890,178 @@ function __shouldProcess(counter, info){
 	if(!AnyBalance.shouldProcess)
 		return !!info.__id;
 	return AnyBalance.shouldProcess(counter, info);
+}
+
+function __setLoginSuccessful(){
+	if(AnyBalance.setLoginSuccessful)
+		AnyBalance.setLoginSuccessful();
+}
+
+function fmtDate(dt, delimiter) {
+	if(!isset(delimiter))
+		delimiter = '.';
+	
+	return getFormattedDate({format: 'DD' + delimiter + 'MM' + delimiter + 'YYYY'}, dt);
+}
+
+function n2(n) {
+	return n < 10 ? '0' + n : '' + n;
+}
+
+/**
+options = {
+	format: 'DD/MM/YYYY', // DD=09, D=9, MM=08, М=8, YYYY=2015, YY=15
+	offsetDay: 0, // Смещение по дням
+	offsetMonth: 0, // Смещение по месяцам
+	offsetYear: 5, // Смещение по годам
+}
+*/
+
+function getFormattedDate(options, dt) {
+	if(!dt)
+		var dt = new Date();
+	
+	var day = dt.getDate() - (options.offsetDay || 0);
+	var month = (dt.getMonth() + 1) - (options.offsetMonth || 0);
+	var year = dt.getFullYear() - (options.offsetYear || 0);
+	
+	return getParam(options.format, null, null, null, [
+		/DD/, n2(day), /D/, day,
+		/MM/, n2(month), /M/, month,
+		/YYYY/, year, /YY/, (year+'').substring(2,4)
+	]);
+}
+
+function joinUrl(url, path){
+	if(!path) //Пустой путь
+		return url;
+	if(/^\//.test(path)) //Абсолютный путь
+		return url.replace(/^(\w+:\/\/[\w.\-]+).*$/, '$1' + path);
+	if(/^\w+:\/\//.test(path)) //Абсолютный урл
+		return path;
+	//относительный путь
+	url = url.replace(/\?.*$/, ''); //Обрезаем аргументы
+	if(/:\/\/.*\//.test(url))
+		url = url.replace(/\/[^\/]*$/, '/'); //Сокращаем до папки
+	if(!endsWith(url, '/'))
+		url += '/';
+	return url + path;
+}
+
+/** Пример использования
+	var colsDef = {
+		type: {
+			re: /Тип/i,
+			result_func: function(str){
+				if(/мобил/i.test(str))
+					return 'mobile';
+				if(/эл/i.test(str))
+					return 'email';
+				if(/домаш/i.test(str))
+					return 'home';
+				if(/рабоч/i.test(str))
+					return 'work';
+				return str;
+			}
+		},
+		sum_out: {
+            re: /Сумма зачисления/i,
+            result_name: 'sum_done',
+            result_sum: true,
+            result_replace: replaceSign,
+        },
+		loan: {
+            re: /Ссуда/i,
+            result_process: function(path, td, result){
+                var info = this; //Остальные параметры
+                td = replaceAll(td, replaceTagsAndSpaces);
+                getParam(td, result, path + 'debt_main', /([^\/]*)/i, null, parseBalance);
+                getParam(td, result, path + 'debt_pct', /[^\/]*\/([^\/]*)/i, null, parseBalance);
+                getParam(td, result, path + 'debt_fee', /(?:[^\/]*\/){2}([^\/]*)/i, null, parseBalance);
+            }
+        },
+		contact: {
+			re: /Контакт/i,
+			result_func: null //Текст
+		}
+	};
+	var table = getElement(html, /<table[^>]+class="card-table"[^>]*>/i);
+	if(table){
+		info.contacts = [];
+		processTable(table, info.contacts, 'info.contacts.', colsDef);
+	}
+*/
+function processTable(table, result, path, colsDef, onWrongSize, onFilledResult){
+    var trs = getElements(table, /<tr[^>]*>/ig);
+    var cols, size;
+    for (var i = 0; i < trs.length; i++) {
+        var tr = trs[i];
+        var tds = getElements(tr, /<td[^>]*>/ig);
+        if(tds.length == 0) {
+            //Заголовок
+            var ths = getElements(tr, /<th[^>]*>/ig);
+            size = ths.length;
+            cols = initCols(colsDef, ths);
+        }else if(tds.length == size){
+            var t = {};
+
+            fillColsResult(colsDef, cols, tds, t, path);
+            if(onFilledResult)
+                onFilledResult(t, path);
+
+            result.push(t);
+        }else if(onWrongSize){
+            onWrongSize(tr, tds);
+        }
+    }
+}
+
+
+function initCols(colsDef, ths){
+    var cols = {};
+    for (var i = 0; i < ths.length; i++) {
+        var th = ths[i];
+        for(var name in colsDef){
+            if(colsDef[name].re.test(th))
+                cols[name] = i;
+        }
+    }
+    return cols;
+}
+
+function fillColsResult(colsDef, cols, tds, result, path){
+    function getset(val, def){
+        return isset(val) ? val : def;
+    }
+    path = path || '';
+
+    var rts = replaceTagsAndSpaces,
+        pb = parseBalance,
+        as = aggregate_sum;
+
+    for(var name in colsDef){
+        var cd = colsDef[name];
+        if(isset(cols[name])){
+            var td = tds[cols[name]];
+            var rn = getset(cd.result_name, name);
+            if(isArray(rn)){
+                var rn1 = [];
+                for (var i = 0; i < rn.length; i++) {
+                    rn1.push(path + rn[i]);
+                }
+                rn = rn1;
+            }else{
+                rn = path + rn;
+            }
+
+            if(cd.result_process) {
+                cd.result_process(path, td, result);
+            }else if(cd.result_sum){
+                cd.result_re && (cd.result_re.lastIndex = 0);
+                sumParam(td, result, rn, cd.result_re, getset(cd.result_replace, rts), getset(cd.result_func, pb), getset(cd.result_aggregate, as));
+            }else {
+                getParam(td, result, rn, cd.result_re, getset(cd.result_replace, rts), getset(cd.result_func, pb));
+            }
+        }
+    }
 }

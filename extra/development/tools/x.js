@@ -47,19 +47,23 @@ try{
 		if(g_prefs_file) {
 			var msg = ' Check you main.js file for stupid errors!';
 			
+			
 			var prefsName = searchRegExpSafe(/(?:var\s+)?([^\s]+)\s*=\s*AnyBalance\.getPreferences\s*\(\)/i, mainJs);
 			//var prefsName = /(?:var\s+)?([^\s]+)\s*=\s*AnyBalance\.getPreferences\s*\(\)/i.exec(mainJs)[1];
-			if(!prefsName) {
-				throw new Error('We don`t found AnyBalance.getPreferences()!' + msg);
-			}
-			
-			// Нельзя хардкодить преференсы!
-			var reg = new RegExp('(?:var\\s+)?' + prefsName + '\\s*=\\s*([^,;]+)', 'ig');
-			var r_result;
-			while((r_result = reg.exec(mainJs)) !== null) {
-				if(!/AnyBalance\.getPreferences\s*\(\)/i.test(r_result[1])) {
-					throw new Error('You have overrided your preferences!' + msg);
+			if(prefsName) {
+				// Нельзя хардкодить преференсы!
+				var reg = new RegExp('(?:var\\s+)?' + prefsName + '\\s*=\\s*([^,;]+)', 'ig');
+				var r_result;
+				while((r_result = reg.exec(mainJs)) !== null) {
+					if(!/AnyBalance\.getPreferences\s*\(\)/i.test(r_result[1])) {
+						throw new Error('You have overrided your preferences!' + msg);
+					}
 				}
+			}
+
+			//Обработать ошибку входа!
+			if(mainJs.indexOf('<div[^>]+class="t-error"[^>]*>[\\s\\S]*?<ul[^>]*>([\\s\\S]*?)<\\/ul>') > 0){
+					throw new Error('You have to check for login error and show appropriate message!');
 			}
 		}
 		

@@ -36,7 +36,7 @@ function main(){
     var baseurl = 'https://www.mvideo.ru';
     var baseurl1 = 'http://www.mvideo.ru';
 
-    var html = AnyBalance.requestPost(baseurl + '/login', g_headers);
+    var html = AnyBalance.requestGet(baseurl + '/login', g_headers);
     var form = getElement(html, prefs.type == '-1' ? /<form[^>]+id="login-form"[^>]*>/i : /<form[^>]+id="login-bonus-card-form"[^>]*>/i);
     if(!form){
     	AnyBalance.trace(form);
@@ -75,6 +75,10 @@ function main(){
 		var error = getParam(html, null, null, /<label[^>]+class="text-error"[^>]*>\s*([^\s<][\s\S]*?)<\/label>/ig, replaceTagsAndSpaces, html_entity_decode);
 		if(error)
 			throw new AnyBalance.Error(error, null, /Неверный логин или пароль/i.test(error));
+		if(!html && prefs.type >= 0)
+			throw new AnyBalance.Error('Не удаётся зайти по номеру карты (М.Видео возвращает пустую страницу). Попробуйте войти по логину и паролю.');
+		if(/Для восстановления пароля авторизуйтесь через адрес электронной почты или телефон/i.test(html))
+			throw new AnyBalance.Error('М.Видео требует ввести пароль в личный кабинет. Вам необходимо войти в личный кабинет М.Видео https://www.mvideo.ru/login через браузер и ввести пароль.');
 		AnyBalance.trace(html);
 		throw new AnyBalance.Error('Не удалось зайти в личный кабинет. Сайт изменен?');
 			
@@ -86,7 +90,7 @@ function main(){
 
     html = AnyBalance.requestGet(baseurl + '/my-account', g_headers);
     getParam(html, result, 'fio', /Владелец карты[\s\S]*?<div[^>]*>([\s\S]*?)<\/div>/i, replaceTagsAndSpaces, html_entity_decode);
-    getParam(html, result, 'balance', /Вы можете потратить[\s\S]*?<div[^>]*>([\s\S]*?)<\/div>/i, replaceTagsAndSpaces, parseBalance);
+    getParam(html, result, 'balance', /Доступно для оплаты покупок[\s\S]*?<div[^>]*>([\s\S]*?)<\/div>/i, replaceTagsAndSpaces, parseBalance);
     getParam(html, result, '__tariff', /Номер карты[\s\S]*?<div[^>]*>([\s\S]*?)<\/div>/i, replaceTagsAndSpaces, html_entity_decode);
     
     var hist = getElement(html, /<li[^>]+class="order-history-item"[^>]*>/i);
